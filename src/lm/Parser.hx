@@ -82,6 +82,7 @@ class Parser {
 	var sEof: String;            // by @:rule from Lexer
 	var funMap: Map<String, {name: String, ct: ComplexType, args: Int}>; //  TokenName => FunctionName
 	var ct_terms: ComplexType;   // the ctype of tokens
+	var nonVoid: Bool;
 	var ct_ldef: ComplexType;    // the default ctype of LHS.
 	var ct_lval: ComplexType;    // if "ct_lhs" can no be unified with any "LHS.ctype" then its value is ":Dynamic"
 	var ct_stream: ComplexType;  // :lm.Stream<ct_lval>
@@ -138,8 +139,8 @@ class Parser {
 
 		ct_terms = Context.toComplexType(t_terms);
 		ct_ldef = Context.toComplexType(t_lhs);
+		nonVoid = t_lhs.toString() != "Void";
 		ct_lval = ct_ldef;
-
 		readTerms(t_terms);
 		readPrecedence(cls);
 		transform(rest);
@@ -476,7 +477,7 @@ class Parser {
 		}
 		// Scanning for reduce the temp varialbes of _t1~_tN
 		var tmp: Array<Null<Bool>>;
-		function loop(e: Expr) {
+		function scanning(e: Expr) {
 			switch(e.expr) {
 			case EConst(CIdent(s)):
 				if (s.substr(0, 2) == "_t") {
@@ -485,7 +486,7 @@ class Parser {
 						tmp[i - 1] = true;
 				}
 			default:
-				e.iter(loop);
+				e.iter(scanning);
 			}
 		}
 		var toks:Array<Array<Null<Bool>>> = [];
@@ -497,10 +498,12 @@ class Parser {
 				this.vcases[ti] = li;
 				tmp = [];
 				tmp.resize(li.syms.length);
-				if (li.action == null)
-					Context.fatalError("Need return *" + lhs.ctype.toString() + "*", li.pos);
-				li.action.iter(loop);
 				toks[ti++] = tmp;
+				if (nonVoid) {
+					if (li.action == null)
+						Context.fatalError("Need return *" + lhs.ctype.toString() + "*", li.pos);
+					li.action.iter(scanning);
+				}
 			}
 		}
 		this.reduceDetail = new haxe.ds.Vector<Int>(nrules);
@@ -554,17 +557,19 @@ class Parser {
 						a.push( macro @:pos(s.pos) var $name: $ct = @:privateAccess (cast s.offset($v{dx}).val: $ct) );
 					}
 				}
-				switch(li.action.expr) {
-				case EBlock(a) if (a.length > 0):
-					var ct = lhs.ctype;
-					var j = a.length - 1;
-					a[j] = macro @:pos(a[j].pos) ($e{a[j]}: $ct);  // Type safe and accurate error postion
-					li.action = {expr: EBlock(a), pos: li.action.pos};
-				case _:
-				}
-				li.action = macro @:pos(li.action.pos) @:mergeBlock {
-					@:mergeBlock $b{a};
-					@:mergeBlock $e{li.action};
+				if (li.action != null) {
+					switch(li.action.expr) {
+					case EBlock(a) if (a.length > 0):
+						var ct = lhs.ctype;
+						var j = a.length - 1;
+						a[j] = macro @:pos(a[j].pos) ($e{a[j]}: $ct);  // Type safe and accurate error postion
+						li.action = {expr: EBlock(a), pos: li.action.pos};
+					case _:
+					}
+					li.action = macro @:pos(li.action.pos) @:mergeBlock {
+						@:mergeBlock $b{a};
+						@:mergeBlock $e{li.action};
+					}
 				}
 				++ ti;
 			}
@@ -604,8 +609,11 @@ class Parser {
 						if (edef != null)
 							cl.push({values: [macro @:pos(edef.pos) _], expr: edef});
 						firstCharChecking(f.name, LOWER, f.pos);
-						if ( ct != null && this.ct_ldef == this.ct_lval && !Context.unify(ct.toType(), t_lhs) )
+						if ( ct != null && this.ct_ldef == this.ct_lval && !Context.unify(ct.toType(), t_lhs) ) {
+							if (!nonVoid)
+								Context.fatalError('Mixed "Void" and "'+ ct.toString() +'" are not allowed', f.pos);
 							this.ct_lval = macro :Dynamic; // use Dynamic if .unify() == false
+						}
 						ret.push(cl);
 						this.nrules += cl.length;
 						this.lhsA.push({
@@ -635,8 +643,8 @@ class Parser {
 		if (lvalue > 255) throw "Too Many Termls/NoN-Termls"; // TODO: or force the invalid value up to 16bit??
 
 		// Waiting for "ct_lval" available
-		this.ct_stream = macro :lm.Stream<$ct_lval>;
-		this.ct_stream_tok = macro :lm.Stream.Tok<$ct_lval>;
+		this.ct_stream = nonVoid ? (macro :lm.Stream<$ct_lval>) : (macro :lm.Stream<Dynamic>);
+		this.ct_stream_tok = nonVoid ? (macro :lm.Stream.Tok<$ct_lval>) : (macro :lm.Stream.Tok<Dynamic>);
 
 		for (x in flazy) {
 			var f = x.f;

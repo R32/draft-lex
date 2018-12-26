@@ -352,12 +352,12 @@ class LR0Builder extends lm.Parser {
 			static inline function gotos(fid:Int, s:$ct_stream):$ct_lval return cases(fid, s);
 			var stream: $ct_stream;
 			public function new(lex: lm.Lexer<Int>) {
-				this.stream = new lm.Stream<$ct_lval>(lex, 0);
+				this.stream = new lm.Stream(lex, 0);
 			}
 			@:access(lm.Stream, lm.Tok)
 			static function _entry(stream: $ct_stream, state:Int, exp:Int, until:Bool):$ct_lval {
 				var prev = state;
-				var t: lm.Stream.Tok<$ct_lval> = null;
+				var t = null;
 				var dx = 0;
 				var keep = stream.pos; // used for _side.
 				while (true) {
@@ -381,14 +381,14 @@ class LR0Builder extends lm.Parser {
 					}
 					dx = 0;
 					while (true) {
-						var value:$ct_lval = gotos(q, stream);
+						$e{ nonVoid ? (macro var value:$ct_lval = gotos(q, stream)) : (macro gotos(q, stream)) }
 						t = stream.reduce( lva[q] );
 						if ($e{ hasSide ? macro (t.term == exp && !until) : macro (t.term == exp) }) {
 							-- stream.pos;      // discard the last token
 							stream.junk(1);
-							return value;
+							$e{ nonVoid ? (macro return value) : (macro return)}
 						}
-						t.val = value;
+						$e{ nonVoid ? (macro t.val = value) : (macro {})}
 						t.state = trans(stream.offset( -2).state, t.term);
 						prev = t.state;
 						if (prev < NSEGS)
@@ -398,7 +398,7 @@ class LR0Builder extends lm.Parser {
 								macro
 								if (prev == INVALID) {
 									if (until && exp == t.term)
-									return value;
+										$e{ nonVoid ? (macro return value) : (macro return)}
 									throw stream.UnExpected(t);
 								}
 							} else {
@@ -411,7 +411,7 @@ class LR0Builder extends lm.Parser {
 				$e{ // Macro selection
 					if (hasSide) {
 						macro if ( until && (stream.pos - dx == keep + 1) && (exp == stream.cached[keep].term) ) // hasSide 3
-								return stream.cached[keep].val;
+								$e{ nonVoid ? (macro return stream.cached[keep].val) : (macro return)}
 					} else {
 						macro {};
 					}
@@ -426,10 +426,10 @@ class LR0Builder extends lm.Parser {
 				var t = stream.reqTok(lv, prev.pmax, prev.pmax);
 				t.state = state;
 				stream.shift(t);
-				var value = _entry(stream, state, lv, true);
+				$e{ nonVoid ? (macro var value = _entry(stream, state, lv, true)) : (macro _entry(stream, state, lv, true))}
 				stream.pos = keep;
 				stream.junk(2);
-				return value;
+				$e{ nonVoid ? (macro return value) : (macro {})}
 			}
 		}
 		// build switch
@@ -454,7 +454,7 @@ class LR0Builder extends lm.Parser {
 				ret: ct_lval,
 				expr: macro {
 					@:mergeBlock $b{preDefs};
-					return $eSwitch;
+					$e{ nonVoid ? (macro return $eSwitch) : (macro $eSwitch)}
 				}
 			}),
 			pos: here,
